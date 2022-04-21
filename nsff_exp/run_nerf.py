@@ -9,10 +9,12 @@ import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
 import cv2
 from kornia import create_meshgrid
+import imageio
 
 from render_utils import *
 from run_nerf_helpers import *
 from load_llff import *
+from pathlib import Path
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 np.random.seed(1)
@@ -85,8 +87,13 @@ def config_parser():
     parser.add_argument("--render_bt", action='store_true', 
                         help='render bullet time')
 
+    parser.add_argument("--render_freeze_test", action='store_true', 
+                        help='render given freeze test')
+
     parser.add_argument("--render_test", action='store_true', 
                         help='do not optimize, reload weights and render out render_poses path')
+    parser.add_argument("--render_test_time", type=int, default=None, 
+                        help='time frame for render freeze test')
     parser.add_argument("--render_factor", type=int, default=0, 
                         help='downsampling factor to speed up rendering, set 4 or 8 for fast preview')
 
@@ -151,7 +158,7 @@ def config_parser():
     # logging/saving options
     parser.add_argument("--i_print",   type=int, default=1000, 
                         help='frequency of console printout and metric loggin')
-    parser.add_argument("--i_img",     type=int, default=1000, 
+    parser.add_argument("--i_img",     type=int, default=10000, 
                         help='frequency of tensorboard image logging')
     parser.add_argument("--i_weights", type=int, default=10000, 
                         help='frequency of weight ckpt saving')
@@ -181,8 +188,36 @@ def train():
         print('Loaded llff', images.shape, render_poses.shape, hwf, args.datadir)
         i_test = []
         i_val = [] #i_test
+        if (Path(args.datadir) / 'dataset_nsff.json').exists():
+            # load validation dataset split
+            with open(Path(args.datadir) / 'dataset_nsff.json','r') as f:
+                dataset_info = json.load(f)
+            i_val = [dataset_info['ids'].index(val_i) for val_i in dataset_info['val_ids']]
+            i_test = [dataset_info['ids'].index(val_i) for val_i in dataset_info['test_ids']]
+
         i_train = np.array([i for i in np.arange(int(images.shape[0])) if
                         (i not in i_test and i not in i_val)])
+        
+        test_time_idx = None
+        if (Path(args.datadir) / 'metadata_nsff.json').exists():
+            # load time idx for tests
+            with open(Path(args.datadir) / 'metadata_nsff.json','r') as f:
+                time_info = json.load(f)
+
+            img_paths = sorted(list((Path(args.datadir) / 'images').glob("*")))
+            train_time_ids = []
+            for i in i_train:
+                img_name = img_paths[i].stem
+                time_id = time_info[img_name]['warp_id']
+                train_time_ids.append(time_id)
+
+            test_time_idx = []
+            for i in i_test:
+                img_name = img_paths[i].stem
+                time_id = time_info[img_name]['warp_id']
+                # the real time id should be related to the train time id index
+                time_id = train_time_ids.index(time_id)
+                test_time_idx.append(time_id)
 
         print('DEFINING BOUNDS')
         if args.no_ndc:
@@ -234,6 +269,90 @@ def train():
 
     render_kwargs_train.update(bds_dict)
     render_kwargs_test.update(bds_dict)
+
+    if args.render_test:
+        print('running test evaluation')
+        import models
+        import skimage.measure
+        from skimage.metrics import structural_similarity
+
+        def calculate_psnr(img1, img2):
+            # img1 and img2 have range [0, 1]
+            img1 = img1.astype(np.float64)
+            img2 = img2.astype(np.float64)
+
+            mask = np.ones_like(img1)
+
+            num_valid = np.sum(mask) + 1e-8
+
+            mse = np.sum((img1 - img2)**2 * mask) / num_valid
+            
+            if mse == 0:
+                return 0 #float('inf')
+
+            return 10 * math.log10(1./mse)
+
+        lpips_model = models.PerceptualLoss(model='net-lin',net='alex',
+                                use_gpu=True,version=0.1)
+
+
+        num_img = len(i_train)
+
+        out_dir = Path(basedir) / expname / 'eval_test'
+        img_out_dir = out_dir / 'render'
+        img_out_dir.mkdir(exist_ok=True, parents=True)
+
+        psnr_ls = []
+        ssim_ls = []
+        lpips_ls = []
+
+        for i, test_i in enumerate(i_test):
+            gt_img = images[test_i]
+            pose = poses[test_i, :3,:4]
+
+            if args.render_test_time is None:
+                img_idx_embed = test_time_idx[i]/num_img * 2. - 1.0
+            else:
+                img_idx_embed = args.render_test_time/num_img * 2. - 1.0
+
+
+            with torch.no_grad():
+                ret = render(img_idx_embed, 
+                                0, False,
+                                num_img, H, W, focal, 
+                                chunk=1024*32, 
+                                c2w=torch.Tensor(pose).to(device),
+                                **render_kwargs_test)
+
+                rgb = ret['rgb_map_ref'].cpu().numpy()
+                imageio.imwrite(str(img_out_dir / f'test_{test_i:05d}.png'), rgb)
+
+                psnr = calculate_psnr(gt_img, rgb)
+                ssim = structural_similarity(gt_img, rgb, 
+                                                    multichannel=True)
+
+                gt_img_0 = im2tensor(gt_img).cuda()
+                rgb_0 = im2tensor(rgb).cuda()
+                lpips = lpips_model.forward(gt_img_0, rgb_0)
+                lpips = lpips.item()
+
+                print(psnr, ssim, lpips)
+                psnr_ls.append(psnr)
+                ssim_ls.append(ssim)
+                lpips_ls.append(lpips)
+
+        print(f'Average psnr: {np.average(psnr_ls)}')
+        print(f'Average ssim: {np.average(ssim_ls)}')
+        print(f'Average lpips: {np.average(lpips_ls)}')
+
+        # save to file
+        with (out_dir / 'metrics.txt').open('w') as f:
+            f.write(f'Average psnr: {np.average(psnr_ls)}\n')
+            f.write(f'Average ssim: {np.average(ssim_ls)}\n')
+            f.write(f'Average lpips: {np.average(lpips_ls)}\n')
+
+
+        return
 
 
     if args.render_bt:
@@ -309,7 +428,8 @@ def train():
 
     poses = torch.Tensor(poses).to(device)
 
-    N_iters = 2000 * 1000 #1000000
+    # N_iters = 2000 * 1000 #1000000
+    N_iters = 500000
     print('Begin')
     print('TRAIN views are', i_train)
     print('TEST views are', i_test)
@@ -329,9 +449,9 @@ def train():
     for i in range(start, N_iters):
         chain_bwd = 1 - chain_bwd
         time0 = time.time()
-        print('expname ', expname, ' chain_bwd ', chain_bwd, 
-             ' lindisp ', args.lindisp, ' decay_iteration ', decay_iteration)
-        print('Random FROM SINGLE IMAGE')
+        # print('expname ', expname, ' chain_bwd ', chain_bwd, 
+        #      ' lindisp ', args.lindisp, ' decay_iteration ', decay_iteration)
+        # print('Random FROM SINGLE IMAGE')
         # Random from one image
         img_i = np.random.choice(i_train)
 
@@ -417,9 +537,9 @@ def train():
             coords = torch.reshape(coords, [-1,2])  # (H * W, 2)
 
             if args.use_motion_mask and i < decay_iteration * 1000:
-                print('HARD MINING STAGE !')
+                # print('HARD MINING STAGE !')
                 num_extra_sample = args.num_extra_sample
-                print('num_extra_sample ', num_extra_sample)
+                # print('num_extra_sample ', num_extra_sample)
                 select_inds_hard = np.random.choice(hard_coords.shape[0], 
                                                     size=[min(hard_coords.shape[0], 
                                                         num_extra_sample)], 
@@ -469,7 +589,7 @@ def train():
         else:
             chain_5frames = False
 
-        print('chain_5frames ', chain_5frames, ' chain_bwd ', chain_bwd)
+        # print('chain_5frames ', chain_5frames, ' chain_bwd ', chain_bwd)
 
         ret = render(img_idx_embed, 
                      chain_bwd, 
@@ -509,7 +629,7 @@ def train():
                                        target_rgb, 
                                        weight_map_prev.unsqueeze(-1))
         else:
-            print('only compute dynamic render loss in masked region')
+            # print('only compute dynamic render loss in masked region')
             weights_map_dd = ret['weights_map_dd'].unsqueeze(-1).detach()
 
             # dynamic rendering loss
@@ -557,15 +677,15 @@ def train():
 
         depth_loss = w_depth * compute_depth_loss(ret['depth_map_ref_dy'], -target_depth)
 
-        print('w_depth ', w_depth, 'w_of ', w_of)
+        # print('w_depth ', w_depth, 'w_of ', w_of)
 
         if img_i == 0:
-            print('only fwd flow')
+            # print('only fwd flow')
             flow_loss = w_of * compute_mae(render_of_fwd, 
                                         target_of_fwd, 
                                         target_fwd_mask)#torch.sum(torch.abs(render_of_fwd - target_of_fwd) * target_fwd_mask)/(torch.sum(target_fwd_mask) + 1e-8)
         elif img_i == num_img - 1:
-            print('only bwd flow')
+            # print('only bwd flow')
             flow_loss = w_of * compute_mae(render_of_bwd, 
                                         target_of_bwd, 
                                         target_bwd_mask)#torch.sum(torch.abs(render_of_bwd - target_of_bwd) * target_bwd_mask)/(torch.sum(target_bwd_mask) + 1e-8)
@@ -610,7 +730,7 @@ def train():
                                                           H, W, focal)
 
         if chain_5frames:
-            print('5 FRAME RENDER LOSS ADDED') 
+            # print('5 FRAME RENDER LOSS ADDED') 
             render_loss += compute_mse(ret['rgb_map_pp_dy'], 
                                        target_rgb, 
                                        weights_map_dd)
@@ -621,14 +741,6 @@ def train():
                sf_sm_loss + prob_reg_loss + \
                depth_loss + entropy_loss 
 
-        print('render_loss ', render_loss.item(), 
-              ' bidirection_loss ', sf_cycle_loss.item(), 
-              ' sf_reg_loss ', sf_reg_loss.item())
-        print('depth_loss ', depth_loss.item(), 
-              ' flow_loss ', flow_loss.item(), 
-              ' sf_sm_loss ', sf_sm_loss.item())
-        print('prob_reg_loss ', prob_reg_loss.item(),
-              ' entropy_loss ', entropy_loss.item())
         loss.backward()
         optimizer.step()
 
@@ -642,7 +754,6 @@ def train():
         ################################
 
         dt = time.time()-time0
-        print(f"Step: {global_step}, Loss: {loss}, Time: {dt}")
         #####           end            #####
 
         # Rest is logging
@@ -669,6 +780,15 @@ def train():
 
 
         if i % args.i_print == 0 and i > 0:
+            print(f"Step: {global_step}, Loss: {loss}, Time: {dt}")
+            print('render_loss ', render_loss.item(), 
+                ' bidirection_loss ', sf_cycle_loss.item(), 
+                ' sf_reg_loss ', sf_reg_loss.item())
+            print('depth_loss ', depth_loss.item(), 
+                ' flow_loss ', flow_loss.item(), 
+                ' sf_sm_loss ', sf_sm_loss.item())
+            print('prob_reg_loss ', prob_reg_loss.item(),
+                ' entropy_loss ', entropy_loss.item())
             writer.add_scalar("train/loss", loss.item(), i)
             
             writer.add_scalar("train/render_loss", render_loss.item(), i)

@@ -190,7 +190,7 @@ def extract_poses(im):
 def load_colmap_data(realdir):
     import colmap_read_model as read_model
 
-    camerasfile = os.path.join(realdir, 'sparse/cameras.bin')
+    camerasfile = os.path.join(realdir, 'sparse/0/cameras.bin')
     camdata = read_model.read_cameras_binary(camerasfile)
     
     list_of_keys = list(camdata.keys())
@@ -201,7 +201,7 @@ def load_colmap_data(realdir):
     # w, h, f = factor * w, factor * h, factor * f
     hwf = np.array([h,w,f]).reshape([3,1])
 
-    imagesfile = os.path.join(realdir, 'sparse/images.bin')
+    imagesfile = os.path.join(realdir, 'sparse/0/images.bin')
     imdata = read_model.read_images_binary(imagesfile)
     
     w2c_mats = []
@@ -239,11 +239,13 @@ def compute_epipolar_distance(T_21, K, p_1, p_2):
 
     return geometric_e_distance
 
-def read_optical_flow(basedir, img_i_name, read_fwd):
+def read_optical_flow(basedir, img_i_name, img_idx, read_fwd):
     flow_dir = os.path.join(basedir, 'flow_i1')
 
-    fwd_flow_path = os.path.join(flow_dir, '%s_fwd.npz'%img_i_name[:-4])
-    bwd_flow_path = os.path.join(flow_dir, '%s_bwd.npz'%img_i_name[:-4])
+    fwd_flow_path = os.path.join(flow_dir, f'{img_idx:05d}_fwd.npz')
+    bwd_flow_path = os.path.join(flow_dir, f'{img_idx:05d}_bwd.npz')
+    # fwd_flow_path = os.path.join(flow_dir, '%s_fwd.npz'%img_i_name[:-4])
+    # bwd_flow_path = os.path.join(flow_dir, '%s_bwd.npz'%img_i_name[:-4])
 
     if read_fwd:
       fwd_data = np.load(fwd_flow_path)#, (w, h))

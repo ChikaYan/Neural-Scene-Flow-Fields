@@ -24,7 +24,7 @@ def filter_outlier_points(points, inner_percentile):
   return result[~(too_near | too_far)]
 
 def load_colmap_data(realdir):
-    camerasfile = os.path.join(realdir, 'sparse/cameras.bin')
+    camerasfile = os.path.join(realdir, 'sparse/0/cameras.bin')
     camdata = read_model.read_cameras_binary(camerasfile)
     
     list_of_keys = list(camdata.keys())
@@ -35,7 +35,7 @@ def load_colmap_data(realdir):
     # w, h, f = factor * w, factor * h, factor * f
     hwf = np.array([h, w, f]).reshape([3,1])
 
-    imagesfile = os.path.join(realdir, 'sparse/images.bin')
+    imagesfile = os.path.join(realdir, 'sparse/0/images.bin')
     imdata = read_model.read_images_binary(imagesfile)
     
     w2c_mats = []
@@ -47,7 +47,7 @@ def load_colmap_data(realdir):
     print( 'Images #', len(names))
     perm = np.argsort(names)
 
-    points3dfile = os.path.join(realdir, 'sparse/points3D.bin')
+    points3dfile = os.path.join(realdir, 'sparse/0/points3D.bin')
     pts3d = read_model.read_points3d_binary(points3dfile)
 
     # extract point 3D xyz
@@ -118,6 +118,7 @@ def load_colmap_data(realdir):
 
     for i in range((poses.shape[2])):
         save_arr.append(np.concatenate([poses[..., i].ravel(), bounds_mats[i]], 0))
+    # bounds_mats: near far in original scale
 
     save_arr = np.array(save_arr)
     print(save_arr.shape)

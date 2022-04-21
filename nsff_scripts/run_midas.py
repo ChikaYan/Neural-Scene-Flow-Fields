@@ -243,7 +243,7 @@ if __name__ == "__main__":
                         # help='input image width for monocular depth network')
     # parser.add_argument("--input_h", type=int, default=360,
                         # help='input image height for monocular depth network')
-    parser.add_argument("--resize_height", type=int, default=288,
+    parser.add_argument("--resize_height", type=int, default=256,
                         help='resized image height for training \
                         (width will be resized based on original aspect ratio)')
 

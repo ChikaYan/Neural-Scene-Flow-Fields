@@ -1,7 +1,9 @@
-expname = kid-running_ndc_5f_sv_of_sm_unify3
+expname = kubric_bag_sfm
 
 basedir = ./logs
-datadir = ../data/nerf_data/kid-running/dense
+datadir = ../data/kubric_bag
+
+final_height = 256
 
 dataset_type = llff
 
@@ -33,5 +35,5 @@ w_sf_reg = 0.1
 w_cycle = 1.0
 
 start_frame = 0
-end_frame = 30
+end_frame = 200
 decay_iteration = 30

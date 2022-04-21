@@ -12,7 +12,7 @@ def _load_data(basedir, start_frame, end_frame,
                load_imgs=True, evaluation=False):
     print('factor ', factor)
     poses_arr = np.load(os.path.join(basedir, 'poses_bounds.npy'))
-    poses_arr = poses_arr[start_frame:end_frame, ...]
+    # poses_arr = poses_arr[start_frame:end_frame, ...]
 
     poses = poses_arr[:, :-2].reshape([-1, 3, 5]).transpose([1,2,0])
     bds = poses_arr[:, -2:].transpose([1,0])
@@ -48,7 +48,7 @@ def _load_data(basedir, start_frame, end_frame,
     
     imgfiles = [os.path.join(imgdir, f) for f in sorted(os.listdir(imgdir)) \
                 if f.endswith('JPG') or f.endswith('jpg') or f.endswith('png')]
-    imgfiles = imgfiles[start_frame:end_frame]
+    # imgfiles = imgfiles[start_frame:end_frame]
 
     if poses.shape[-1] != len(imgfiles):
         print( 'Mismatch between imgs {} and poses {} !!!!'.format(len(imgfiles), 
@@ -78,22 +78,26 @@ def _load_data(basedir, start_frame, end_frame,
 
     dispfiles = [os.path.join(disp_dir, f) \
                 for f in sorted(os.listdir(disp_dir)) if f.endswith('npy')]
-    dispfiles = dispfiles[start_frame:end_frame]
+    # dispfiles = dispfiles[start_frame:end_frame]
 
     disp = [cv2.resize(read_MiDaS_disp(f, 3.0), 
                     (imgs.shape[1], imgs.shape[0]), 
                     interpolation=cv2.INTER_NEAREST) for f in dispfiles]
+    # import pdb
+    # pdb.set_trace()
     disp = np.stack(disp, -1)  
 
     mask_dir = os.path.join(basedir, 'motion_masks')
     maskfiles = [os.path.join(mask_dir, f) \
                 for f in sorted(os.listdir(mask_dir)) if f.endswith('png')]
-    maskfiles = maskfiles[start_frame:end_frame]
+    # maskfiles = maskfiles[start_frame:end_frame]
 
     masks = [cv2.resize(imread(f)/255., (imgs.shape[1], imgs.shape[0]), 
                         interpolation=cv2.INTER_NEAREST) for f in maskfiles]
     masks = np.stack(masks, -1)  
     masks = np.float32(masks > 1e-3)
+    if len(masks.shape) > 3:
+        masks = masks[:,:,0,:]
     
     # print(masks.shape)
     # sys.exit()

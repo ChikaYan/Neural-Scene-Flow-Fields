@@ -8,6 +8,7 @@ import glob
 import numpy as np
 import torch
 from PIL import Image
+import pdb
 
 from raft import RAFT
 from core.utils import flow_viz
@@ -46,6 +47,9 @@ def run_maskrcnn(model, img_path): #, intWidth=1024, intHeight=576):
     image_tensor = torchvision.transforms.functional.to_tensor(image).cuda()
 
     tenHumans = torch.FloatTensor(intHeight, intWidth).fill_(1.0).cuda()
+
+    # pdb.set_trace()
+    image_tensor = image_tensor[:3,...]
 
     objPredictions = model([image_tensor])[0]
 
@@ -87,11 +91,16 @@ def run_maskrcnn(model, img_path): #, intWidth=1024, intHeight=576):
 def motion_segmentation(basedir, threshold):
     import colmap_read_model as read_model
 
-    points3dfile = os.path.join(basedir, 'sparse/points3D.bin')
+    points3dfile = os.path.join(basedir, 'sparse/0/points3D.bin')
     pts3d = read_model.read_points3d_binary(points3dfile)
 
     img_dir = glob.glob(basedir + '/images_*x*')[0]  
-    img0 = os.path.join(glob.glob(img_dir)[0], '%05d.png'%0)
+
+    # import pdb
+    # pdb.set_trace()
+
+    # img0 = os.path.join(glob.glob(img_dir)[0], '%05d.png'%0)
+    img0 = os.path.join(sorted(list(glob.glob(glob.glob(img_dir)[0] + '/*')))[0])
     shape_0 = cv2.imread(img0).shape
 
     resized_height, resized_width = shape_0[0], shape_0[1]
@@ -133,24 +142,24 @@ def motion_segmentation(basedir, threshold):
         # load optical flow 
         if i == 0:
           fwd_flow, fwd_mask = read_optical_flow(basedir, 
-                                       im_ref.name, 
+                                       im_ref.name.replace('rgba_',''), i,
                                        read_fwd=True)
           bwd_flow = np.zeros_like(fwd_flow)
           bwd_mask = np.zeros_like(fwd_mask)
 
         elif i == num_frames - 1:
           bwd_flow, bwd_mask = read_optical_flow(basedir, 
-                                       im_ref.name, 
+                                       im_ref.name.replace('rgba_',''), i,
                                        read_fwd=False)
           fwd_flow = np.zeros_like(bwd_flow)
           fwd_mask = np.zeros_like(bwd_mask)
 
         else:
           fwd_flow, fwd_mask = read_optical_flow(basedir, 
-                                       im_ref.name, 
+                                       im_ref.name.replace('rgba_',''), i,
                                        read_fwd=True)
           bwd_flow, bwd_mask = read_optical_flow(basedir, 
-                                       im_ref.name, 
+                                       im_ref.name.replace('rgba_',''), i,
                                        read_fwd=False)
 
         p_post = p_ref + fwd_flow
@@ -334,7 +343,8 @@ def run_optical_flows(args):
     # print(basedir)
     img_dir = glob.glob(basedir + '/images_*')[0]  #basedir + '/images_*288'  
 
-    img_path_train = os.path.join(glob.glob(img_dir)[0], '%05d.png'%0)
+    img_path_train = sorted(list(glob.glob(glob.glob(img_dir)[0] + '/*') ))[0]
+    # img_path_train = os.path.join(glob.glob(img_dir)[0], '%05d.png'%0)
     img_train = cv2.imread(img_path_train)
 
     interval = 1    
@@ -348,6 +358,9 @@ def run_optical_flows(args):
                  glob.glob(os.path.join(basedir, 'images/', '*.jpg'))
 
         images = load_image_list(images)
+        import pdb
+        # pdb.set_trace()
+        images = images[:,:3,...]
         for i in range(images.shape[0]-1):
             print(i)
             image1 = images[i,None]
