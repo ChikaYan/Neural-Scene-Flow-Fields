@@ -3,6 +3,7 @@ import numpy as np
 import os
 import sys
 import json
+from pathlib import Path
 
 def get_bbox_corners(points):
   lower = points.min(axis=0)
@@ -42,6 +43,13 @@ def load_colmap_data(realdir):
     bottom = np.array([0,0,0,1.]).reshape([1,4])
     
     names = [imdata[k].name for k in imdata]
+    # delete images that are not successfully registered
+    img_dir = Path(realdir) / 'images'
+    for img_path in img_dir.glob('*'):
+      if img_path.name not in names:
+        print(f'Deleting {str(img_path)}')
+        img_path.unlink()
+
     img_keys = [k for k in imdata]
 
     print( 'Images #', len(names))
