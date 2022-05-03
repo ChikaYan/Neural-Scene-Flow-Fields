@@ -131,7 +131,7 @@ def load_colmap_data(realdir):
     save_arr = np.array(save_arr)
     print(save_arr.shape)
     np.save(os.path.join(realdir, 'poses_bounds.npy'), save_arr)
-    with open(os.path.join(realdir, 'scene.json'), 'w') as f:
+    with open(os.path.join(realdir, 'scene_sfm.json'), 'w') as f:
       json.dump({
           'scale': scene_scale,
           'center': scene_center.tolist(),

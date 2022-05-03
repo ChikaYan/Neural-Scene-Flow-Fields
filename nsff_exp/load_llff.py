@@ -9,9 +9,12 @@ import cv2
 
 def _load_data(basedir, start_frame, end_frame, 
                factor=None, width=None, height=None, 
-               load_imgs=True, evaluation=False):
+               load_imgs=True, evaluation=False, data_type='llff'):
     print('factor ', factor)
-    poses_arr = np.load(os.path.join(basedir, 'poses_bounds.npy'))
+    if data_type == 'llff': 
+        poses_arr = np.load(os.path.join(basedir, 'poses_bounds.npy'))
+    elif data_type == 'hypernerf':
+        poses_arr = np.load(os.path.join(basedir, 'poses_bounds_hn.npy'))
     # poses_arr = poses_arr[start_frame:end_frame, ...]
 
     poses = poses_arr[:, :-2].reshape([-1, 3, 5]).transpose([1,2,0])
@@ -57,7 +60,7 @@ def _load_data(basedir, start_frame, end_frame,
 
     sh = imageio.imread(imgfiles[0]).shape
     poses[:2, 4, :] = np.array(sh[:2]).reshape([2, 1])
-    poses[2, 4, :] = poses[2, 4, :] * 1./factor
+    poses[2, 4, :] = poses[2, 4, :] * 1./factor # correct image scale
     
     if not load_imgs:
         return poses, bds
@@ -338,6 +341,91 @@ def load_llff_data(basedir, start_frame, end_frame,
     disp = np.moveaxis(disp, -1, 0).astype(np.float32)
     masks = np.moveaxis(masks, -1, 0).astype(np.float32)
     
+    # bd_factor = None
+
+    # Rescale if bd_factor is provided
+    sc = 1. if bd_factor is None else 1./(np.percentile(bds[:, 0], 5) * bd_factor)
+    # sc = 1. if bd_factor is None else 1./(bds.min() * bd_factor)
+
+    poses[:,:3,3] *= sc
+
+    bds *= sc
+    
+    if recenter:
+        poses = recenter_poses(poses)
+        
+    c2w = poses[target_idx, :, :]
+    # c2w = poses_avg(poses)
+
+    ## Get spiral
+    # Get average pose
+    up = normalize(poses[:, :3, 1].sum(0))
+    # up = normalize(poses[target_idx, :3, 1])
+
+    # Find a reasonable "focus disp" for this dataset
+    close_disp, inf_disp = bds.min()*.9, bds.max()*5.
+    dt = .75
+    mean_dz = 1./(((1.-dt)/close_disp + dt/inf_disp))
+    focal = mean_dz
+
+    # Get radii for spiral path
+    shrink_factor = .8
+    zdelta = close_disp * .1
+    tt = poses[:,:3,3] # ptstocam(poses[:3,3,:].T, c2w).T
+    rads = np.percentile(np.abs(tt), 90, 0)
+    c2w_path = c2w
+    N_views = 120
+    N_rots = 2
+
+    if path_zflat:
+        zloc = -close_disp * .1
+        c2w_path[:3,3] = c2w_path[:3,3] + zloc * c2w_path[:3,2]
+        rads[2] = 0.
+        N_rots = 1
+        N_views/=2
+
+    # Generate poses for spiral path
+    # render_poses = render_path_spiral(c2w_path, up, rads, focal, zdelta, zrate=.5, rots=N_rots, N=N_views)
+    render_poses = render_wander_path(c2w)
+    render_poses = np.array(render_poses).astype(np.float32)
+
+    images = images.astype(np.float32)
+    poses = poses.astype(np.float32)
+    disp = disp.astype(np.float32)
+    masks = masks.astype(np.float32)
+
+    return images, disp, masks, poses, bds,\
+        render_poses, c2w, motion_coords
+
+
+
+
+
+def load_hypernerf_data(basedir, start_frame, end_frame, 
+                   factor=8, target_idx=10, 
+                   recenter=True, bd_factor=.75, 
+                   spherify=False, path_zflat=False, 
+                   final_height=288):
+    
+    poses, bds, imgs, disp, masks, motion_coords = _load_data(basedir, 
+                                                              start_frame, end_frame,
+                                                              height=final_height,
+                                                              evaluation=False, data_type='hypernerf')
+    
+    print('Loaded', basedir, bds.min(), bds.max())
+
+    # Correct rotation matrix ordering and move variable dim to axis 0
+    # poses = np.concatenate([poses[:, 1:2, :], 
+    #                         -poses[:, 0:1, :], 
+    #                         poses[:, 2:, :]], 1)
+    poses = np.moveaxis(poses, -1, 0).astype(np.float32)
+    images = np.moveaxis(imgs, -1, 0).astype(np.float32)
+    bds = np.moveaxis(bds, -1, 0).astype(np.float32)
+    disp = np.moveaxis(disp, -1, 0).astype(np.float32)
+    masks = np.moveaxis(masks, -1, 0).astype(np.float32)
+    
+    # bd_factor = None
+
     # Rescale if bd_factor is provided
     sc = 1. if bd_factor is None else 1./(np.percentile(bds[:, 0], 5) * bd_factor)
     # sc = 1. if bd_factor is None else 1./(bds.min() * bd_factor)

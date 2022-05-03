@@ -172,48 +172,72 @@ def train():
     args = parser.parse_args()
 
     # Load data
-    if args.dataset_type == 'llff':
+    if args.dataset_type == 'llff' or args.dataset_type == 'hypernerf':
         target_idx = args.target_idx
-        images, depths, masks, poses, bds, \
-        render_poses, ref_c2w, motion_coords = load_llff_data(args.datadir, 
-                                                            args.start_frame, args.end_frame,
-                                                            args.factor,
-                                                            target_idx=target_idx,
-                                                            recenter=True, bd_factor=.9,
-                                                            spherify=args.spherify, 
-                                                            final_height=args.final_height)
+        if args.dataset_type == 'llff':
+            images, depths, masks, poses, bds, \
+            render_poses, ref_c2w, motion_coords = load_llff_data(args.datadir, 
+                                                                args.start_frame, args.end_frame,
+                                                                args.factor,
+                                                                target_idx=target_idx,
+                                                                recenter=True, bd_factor=.9,
+                                                                spherify=args.spherify, 
+                                                                final_height=args.final_height)
+            np.save(Path(args.datadir) / 'nsff_poses.npy', poses)
+        elif args.dataset_type == 'hypernerf':
+            images, depths, masks, poses, bds, \
+            render_poses, ref_c2w, motion_coords = load_hypernerf_data(args.datadir, 
+                                                                args.start_frame, args.end_frame,
+                                                                args.factor,
+                                                                target_idx=target_idx,
+                                                                recenter=True, bd_factor=.9,
+                                                                spherify=args.spherify, 
+                                                                final_height=args.final_height)
+            np.save(Path(args.datadir) / 'nsff_poses_hn.npy', poses)
+        else:
+            raise NotImplementedError()
 
+        
         hwf = poses[0,:3,-1]
         poses = poses[:,:3,:4]
         print('Loaded llff', images.shape, render_poses.shape, hwf, args.datadir)
         i_test = []
         i_val = [] #i_test
-        if (Path(args.datadir) / 'dataset_nsff.json').exists():
-            # load validation dataset split
-            with open(Path(args.datadir) / 'dataset_nsff.json','r') as f:
-                dataset_info = json.load(f)
-            i_val = [dataset_info['ids'].index(val_i) for val_i in dataset_info['val_ids']]
-            i_test = [dataset_info['ids'].index(val_i) for val_i in dataset_info['test_ids']]
-
         i_train = np.array([i for i in np.arange(int(images.shape[0])) if
                         (i not in i_test and i not in i_val)])
+        if (Path(args.datadir) / 'dataset_nsff.json').exists() or (Path(args.datadir) / 'dataset.json').exists():
+            # load validation dataset split
+            if (Path(args.datadir) / 'dataset_nsff.json').exists():
+                dataset_path = (Path(args.datadir) / 'dataset_nsff.json')
+            else:
+                dataset_path = (Path(args.datadir) / 'dataset.json')
+            with dataset_path.open('r') as f:
+                dataset_info = json.load(f)
+            i_val = [dataset_info['ids'].index(idx) for idx in dataset_info['val_ids']]
+            i_test = [dataset_info['ids'].index(idx) for idx in dataset_info['val_ids']]
+            i_train = [dataset_info['ids'].index(idx) for idx in dataset_info['train_ids']]
+            
         
         test_time_idx = None
-        if (Path(args.datadir) / 'metadata_nsff.json').exists():
+        if (Path(args.datadir) / 'metadata_nsff.json').exists() or (Path(args.datadir) / 'metadata.json').exists():
             # load time idx for tests
-            with open(Path(args.datadir) / 'metadata_nsff.json','r') as f:
+            if (Path(args.datadir) / 'metadata_nsff.json').exists():
+                time_path = (Path(args.datadir) / 'metadata_nsff.json')
+            else:
+                time_path = (Path(args.datadir) / 'metadata.json')
+            with time_path.open('r') as f:
                 time_info = json.load(f)
 
-            img_paths = sorted(list((Path(args.datadir) / 'images').glob("*")))
+            # img_paths = sorted(list((Path(args.datadir) / 'images').glob("*")))
             train_time_ids = []
             for i in i_train:
-                img_name = img_paths[i].stem
+                img_name = dataset_info['ids'][i]
                 time_id = time_info[img_name]['warp_id']
                 train_time_ids.append(time_id)
 
             test_time_idx = []
             for i in i_test:
-                img_name = img_paths[i].stem
+                img_name = dataset_info['ids'][i]
                 time_id = time_info[img_name]['warp_id']
                 # the real time id should be related to the train time id index
                 time_id = train_time_ids.index(time_id)
