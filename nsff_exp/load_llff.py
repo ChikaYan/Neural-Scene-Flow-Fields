@@ -353,6 +353,11 @@ def load_llff_data(basedir, start_frame, end_frame,
 
     poses[:,:3,3] *= sc
 
+
+    # broom: bds: 10 ~ 20, sc: 0.127
+    # 3d-printer: bds: 10 ~ 20, sc: 0.123
+    # banana: bds: 20~66, sc: 0.06
+
     bds *= sc
     
     if recenter:
@@ -433,6 +438,12 @@ def load_hypernerf_data(basedir, start_frame, end_frame,
     # Rescale if bd_factor is provided
     sc = 1. if bd_factor is None else 1./(np.percentile(bds[:, 0], 5) * bd_factor)
     # sc = 1. if bd_factor is None else 1./(bds.min() * bd_factor)
+
+    # broom: bds: 1~51, sc: 0.885
+    # 3d-printerL: bds: 0.3~25, sc: 3
+    # banana: 1~91, sc: 0.891
+
+    sc = 0.12 # hack!
 
     poses[:,:3,3] *= sc
 
