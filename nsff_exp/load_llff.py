@@ -58,8 +58,12 @@ def _load_data(basedir, start_frame, end_frame,
                                                                 poses.shape[-1]) )
         return
 
-    sh = imageio.imread(imgfiles[0]).shape
-    poses[:2, 4, :] = np.array(sh[:2]).reshape([2, 1])
+    # sh = imageio.imread(imgfiles[0]).shape
+    # poses[:2, 4, :] = np.array(sh[:2]).reshape([2, 1])
+    factor = poses[0,4,0] / height
+    if factor != 1.:
+        raise NotImplementedError('factor is weird! Check what image size did colmap run on!')
+
     poses[2, 4, :] = poses[2, 4, :] * 1./factor # correct image scale
     
     if not load_imgs:
