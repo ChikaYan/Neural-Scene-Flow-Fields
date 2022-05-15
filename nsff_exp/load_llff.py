@@ -443,9 +443,11 @@ def load_hypernerf_data(basedir, start_frame, end_frame,
     # 3d-printerL: bds: 0.3~25, sc: 3
     # banana: 1~91, sc: 0.891
 
-    sc = 0.12 # hack!
+    # sc = 0.12 # hack!
 
     poses[:,:3,3] *= sc
+
+    raise NotImplementedError('Not supported anymore!')
 
     bds *= sc
     

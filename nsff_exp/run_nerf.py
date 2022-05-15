@@ -216,8 +216,13 @@ def train():
             i_val = [dataset_info['ids'].index(idx) for idx in dataset_info['val_ids']]
             i_test = [dataset_info['ids'].index(idx) for idx in dataset_info['val_ids']]
             i_train = [dataset_info['ids'].index(idx) for idx in dataset_info['train_ids']]
+
+
+        print('TRAIN views are', i_train)
+        print('TEST views are', i_test)
+        print('VAL views are', i_val)
             
-        
+
         test_time_idx = None
         if (Path(args.datadir) / 'metadata_nsff.json').exists() or (Path(args.datadir) / 'metadata.json').exists():
             # load time idx for tests
@@ -241,7 +246,7 @@ def train():
                 time_id = time_info[img_name]['warp_id']
                 # the real time id should be related to the train time id index
                 time_id = train_time_ids.index(time_id)
-                test_time_idx.append(time_id)
+                test_time_idx.append(i_train[time_id])
 
         print('DEFINING BOUNDS')
         if args.no_ndc:
@@ -320,7 +325,7 @@ def train():
                                 use_gpu=True,version=0.1)
 
 
-        num_img = len(i_train)
+        num_img = float(poses.shape[0])
 
         out_dir = Path(basedir) / expname / 'eval_test'
         img_out_dir = out_dir / 'render'
